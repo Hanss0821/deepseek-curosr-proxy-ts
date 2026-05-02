@@ -1,0 +1,15 @@
+{
+    "compilerOptions": {
+      "target": "ES2022",
+      "module": "ESNext",
+      "moduleResolution": "Bundler", // import 语法
+      "esModuleInterop": true,
+      "strict": true,
+      "noUncheckedIndexedAccess": true, // 索引访问强制做非空检查
+      "noImplicitOverride": true,
+      "skipLibCheck": true,
+      "outDir": "dist",
+      "rootDir": "src"
+    },
+    "include": ["src/**/*"]
+  }
