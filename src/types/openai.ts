@@ -43,3 +43,20 @@ export interface ChatCompletionChoice {
     message: AssistantMessage;
     finish_reason: 'stop' | 'length' | 'tool_calls' | 'content_filter' | null ;
 }
+
+// 流式返回结构
+export interface ChatCompletionChunk {
+    id: string;
+    choices: ChunkChoice[]
+}
+
+export interface ChunkChoice {
+    delta: Delta;
+    finish_reason: 'stop' | 'length' | 'tool_calls' | 'content_filter' | null
+}
+
+export interface Delta {
+    role?: 'assistant',
+    content?: string,
+    reasoning_content?: string
+}
