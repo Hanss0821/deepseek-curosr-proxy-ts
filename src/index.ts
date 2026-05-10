@@ -9,10 +9,15 @@ app.get('/health', async () => {
   return { status: 'ok' }
 })
 
+// 为了符合curosr的调用规范,不是真的要去查模型
 app.get('/v1/models',async (request, reply)=>{
   return {
-    "object": "list",
-     data: []
+    object: 'list',
+    // 模拟数据
+    data: [
+      { id: 'deepseek-v4-flash', object: 'model', owned_by: 'deepseek' },
+      { id: 'deepseek-v4-pro',   object: 'model', owned_by: 'deepseek' },
+    ]
   }
 })
 
