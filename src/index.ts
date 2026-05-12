@@ -1,6 +1,7 @@
 import Fastify from 'fastify'
 import type {ChatCompletionRequest} from "./types/openai.js"
 import {callDeepSeek, callDeepSeekStream  } from "./upstream/deepseek.js"
+import {proxyStream} from "./transform/sse.js"
 const app = Fastify({
   logger: true,
 })
@@ -24,7 +25,18 @@ app.get('/v1/models',async (request, reply)=>{
 app.post<{Body: ChatCompletionRequest}>('/v1/chat/completions',async(request, reply)=>{
   try{
     const reqParams = request.body;
-    return callDeepSeekStream (reqParams);
+    if(reqParams.stream) {
+      reply.raw.setHeader('Content-Type', 'text/event-stream')
+      reply.raw.setHeader('Cache-Control', 'no-cache')
+      reply.raw.setHeader('Connection', 'keep-alive')
+      const res = await callDeepSeekStream(reqParams);
+      await proxyStream(
+        res, 
+        (data) => reply.raw.write(data),
+        () => reply.raw.end());
+    }else {
+      return callDeepSeek (reqParams);
+    }
   }catch(err) {
     reply.code(502);
     return { error: err instanceof Error ? err.message : 'upstream error' }

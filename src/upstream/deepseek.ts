@@ -31,8 +31,8 @@ export async function callDeepSeek(
         return await res.json() as ChatCompletionResponse
   }
 
-  // 用于流式调用
-  export async function callDeepSeekStream(
+// 用于流式调用
+export async function callDeepSeekStream(
         request: ChatCompletionRequest
     ): Promise<Response> {
         const body = {
@@ -55,4 +55,4 @@ export async function callDeepSeek(
 
         // 走成功路径
         return res
-    }
+  }
