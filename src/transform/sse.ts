@@ -74,14 +74,18 @@ function transformChunk(
     let reasoning = ''; // 存储思维链
     let toolCallId = '';
     const state = { current: 'idle' as ReasoningState }
-
+    let done = false 
     for await (const rawChunk of upstreamResponse.body!) {
+        if(done) break;
         buffer += decoder.decode(rawChunk)
         const events = buffer.split('\n\n')
         buffer = events.pop() ?? ''
         for (const event of events) {
             if (!event.trim()) continue
-            if (event === 'data: [DONE]') break;
+            if (event === 'data: [DONE]') {
+                done = true;
+                break;
+            }
             const chunk = parseSSEEvent(event)
             if (!chunk) continue
             
@@ -95,10 +99,7 @@ function transformChunk(
             if (output) write(output + '\n\n')
           }
     }
-    write('data: [DONE]\n\n');
-    onReasoningComplete?.({
-        reasoning,
-        toolCallId
-    });
+    write('data: [DONE]\n\n')
+    onReasoningComplete?.({ reasoning, toolCallId })
     end()
   }
