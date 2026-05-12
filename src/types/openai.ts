@@ -58,5 +58,6 @@ export interface ChunkChoice {
 export interface Delta {
     role?: 'assistant',
     content?: string,
-    reasoning_content?: string
+    reasoning_content?: string,
+    tool_calls?: unknown[]
 }

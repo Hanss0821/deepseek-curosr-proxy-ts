@@ -38,10 +38,12 @@ export async function callDeepSeekStream(
         const body = {
             ...request,
             stream: true,
-            reasoning_effort:"high",
-            thinking: { type: "enabled" }
+            model: 'deepseek-v4-pro',
+            temperature: undefined,       // 思维链模式下必须去掉
+            thinking: { type: 'enabled' },
+            reasoning_effort: 'high',
+
         };
-        console.log(body);
         const res = await fetch(apiPath, {
             method: "POST",
             headers: {

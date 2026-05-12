@@ -43,7 +43,11 @@ function transformChunk(
             newContent = content;
         }
     }
-
+    // tool_calls 直接透传，不改写
+    if (delta.tool_calls) {
+        return 'data: ' + JSON.stringify(chunk)
+    }
+    
     if(newContent === null) {
         return null;
     }
