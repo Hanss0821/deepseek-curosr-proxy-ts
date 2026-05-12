@@ -81,7 +81,7 @@ function transformChunk(
         buffer = events.pop() ?? ''
         for (const event of events) {
             if (!event.trim()) continue
-            
+            if (event === 'data: [DONE]') break;
             const chunk = parseSSEEvent(event)
             if (!chunk) continue
             

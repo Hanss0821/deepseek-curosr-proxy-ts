@@ -35,8 +35,9 @@ export async function callDeepSeek(
 export async function callDeepSeekStream(
         request: ChatCompletionRequest
     ): Promise<Response> {
+        const { stream_options, ...restRequest } = request as any
         const body = {
-            ...request,
+            ...restRequest,
             stream: true,
             temperature: undefined,       // 思维链模式下必须去掉
             thinking: { type: 'enabled' },
