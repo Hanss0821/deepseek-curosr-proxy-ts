@@ -70,7 +70,6 @@ function transformChunk(
 
     for await (const rawChunk of upstreamResponse.body!) {
         buffer += decoder.decode(rawChunk)
-    
         const events = buffer.split('\n\n')
         buffer = events.pop() ?? ''
         for (const event of events) {

@@ -37,8 +37,11 @@ export async function callDeepSeekStream(
     ): Promise<Response> {
         const body = {
             ...request,
-            stream: true
+            stream: true,
+            reasoning_effort:"high",
+            thinking: { type: "enabled" }
         };
+        console.log(body);
         const res = await fetch(apiPath, {
             method: "POST",
             headers: {
