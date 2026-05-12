@@ -38,7 +38,6 @@ export async function callDeepSeekStream(
         const body = {
             ...request,
             stream: true,
-            model: 'deepseek-v4-pro',
             temperature: undefined,       // 思维链模式下必须去掉
             thinking: { type: 'enabled' },
             reasoning_effort: 'high',

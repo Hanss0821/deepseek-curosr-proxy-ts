@@ -13,7 +13,7 @@ export interface AssistantMessage {
     role: 'assistant';
     content: string | null; // 在调用工具进行回复的时候可以是null
     reasoning_content?: string;
-    tool_calls? :unknown[];
+    tool_calls? :ToolCall[];
 
 }
 // 工具调用结果
@@ -23,7 +23,7 @@ export interface ToolMessage {
     tool_call_id: string;
 }
 
-type Message = UserMessage | SystemMessage | AssistantMessage | ToolMessage;
+export type Message = UserMessage | SystemMessage | AssistantMessage | ToolMessage;
 
 // 协议请求体
 export interface ChatCompletionRequest {
@@ -59,5 +59,14 @@ export interface Delta {
     role?: 'assistant',
     content?: string,
     reasoning_content?: string,
-    tool_calls?: unknown[]
+    tool_calls?: ToolCall[]
+}
+
+export interface ToolCall {
+    id: string;
+    type:"function";
+    function: {
+        name:string;
+        arguments:string;
+    }
 }

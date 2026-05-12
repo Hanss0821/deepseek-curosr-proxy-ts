@@ -2,14 +2,33 @@ import Fastify,{FastifyRequest, FastifyReply } from 'fastify'
 import type {ChatCompletionRequest} from "./types/openai.js"
 import {callDeepSeek, callDeepSeekStream  } from "./upstream/deepseek.js"
 import {proxyStream} from "./transform/sse.js"
+import { setReasoning, getReasoning, findCacheKey } from './cache/reasoning.js'
 const app = Fastify({
   logger: true,
 })
 
 const chatHandler = async(request:FastifyRequest, reply:FastifyReply)=>{
   try{
-    const reqParams = request.body as ChatCompletionRequest;
+    let reqParams = request.body as ChatCompletionRequest;
     if(reqParams.stream) {
+      const cacheKey = findCacheKey(reqParams.messages);
+      if(cacheKey) {
+        const cachedReasoning = getReasoning(cacheKey);
+        if (cachedReasoning) {
+          reqParams = {
+            ...reqParams,
+            messages: reqParams.messages.map(m => {
+              if (
+                m.role === 'assistant' &&
+                m.tool_calls?.[0]?.id === cacheKey
+              ) {
+                return { ...m, reasoning_content: cachedReasoning }
+              }
+              return m
+            })
+          }
+        }
+      }
       reply.raw.setHeader('Content-Type', 'text/event-stream')
       reply.raw.setHeader('Cache-Control', 'no-cache')
       reply.raw.setHeader('Connection', 'keep-alive')
@@ -17,7 +36,13 @@ const chatHandler = async(request:FastifyRequest, reply:FastifyReply)=>{
       await proxyStream(
         res, 
         (data) => reply.raw.write(data),
-        () => reply.raw.end());
+        () => reply.raw.end(),
+        ({reasoning,toolCallId})=>{
+          if(reasoning && toolCallId) {
+            setReasoning(toolCallId,reasoning);
+          }
+        }
+      );
     }else {
       return callDeepSeek (reqParams);
     }

@@ -66,10 +66,13 @@ function transformChunk(
   export async function proxyStream(
     upstreamResponse: Response,
     write: (data: string) => void,  // 调用方传入的"写出函数"
-    end: () => void                 // 调用方传入的"结束函数"
+    end: () => void,               // 调用方传入的"结束函数"
+    onReasoningComplete?:(result:{reasoning:string;toolCallId:string})=> void
   ): Promise<void>{
     const decoder = new TextDecoder();
     let buffer = ''
+    let reasoning = ''; // 存储思维链
+    let toolCallId = '';
     const state = { current: 'idle' as ReasoningState }
 
     for await (const rawChunk of upstreamResponse.body!) {
@@ -82,11 +85,20 @@ function transformChunk(
             const chunk = parseSSEEvent(event)
             if (!chunk) continue
             
+            if(chunk.choices[0]?.delta.reasoning_content) {
+                reasoning +=chunk.choices[0].delta.reasoning_content;
+            }
+            if(!toolCallId && chunk.choices[0]?.delta?.tool_calls?.[0]?.id) {
+                toolCallId = chunk.choices[0].delta.tool_calls[0].id
+            }
             const output = transformChunk(chunk, state)
             if (output) write(output + '\n\n')
           }
     }
-    
-    write('data: [DONE]\n\n')
+    write('data: [DONE]\n\n');
+    onReasoningComplete?.({
+        reasoning,
+        toolCallId
+    });
     end()
   }
