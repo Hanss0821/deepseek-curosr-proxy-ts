@@ -41,7 +41,7 @@ export async function callDeepSeekStream(
             stream: true,
             temperature: undefined,       // 思维链模式下必须去掉
             thinking: { type: 'enabled' },
-            reasoning_effort: 'high',
+            reasoning_effort: 'low',
 
         };
         const res = await fetch(apiPath, {
