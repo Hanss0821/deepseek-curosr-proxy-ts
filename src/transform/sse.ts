@@ -91,7 +91,6 @@ function transformChunk(
             
             if(chunk.choices[0]?.delta.reasoning_content) {
                 reasoning +=chunk.choices[0].delta.reasoning_content;
-                console.log('[reasoning] 收到 reasoning_content chunk', chunk.choices[0].delta.reasoning_content);
             }
             if(!toolCallId && chunk.choices[0]?.delta?.tool_calls?.[0]?.id) {
                 toolCallId = chunk.choices[0].delta.tool_calls[0].id
