@@ -65,41 +65,57 @@ function transformChunk(
   // 主函数：消费 DeepSeek 的流，改写后推给 Cursor
   export async function proxyStream(
     upstreamResponse: Response,
-    write: (data: string) => void,  // 调用方传入的"写出函数"
-    end: () => void,               // 调用方传入的"结束函数"
-    onReasoningComplete?:(result:{reasoning:string;toolCallId:string})=> void
-  ): Promise<void>{
-    const decoder = new TextDecoder();
+    write: (data: string) => void,
+    end: () => void,
+    onReasoningComplete?: (result: { reasoning: string; toolCallId: string }) => void
+): Promise<void> {
+    const decoder = new TextDecoder()
     let buffer = ''
-    let reasoning = ''; // 存储思维链
-    let toolCallId = '';
+    let reasoning = ''
+    let toolCallId = ''
     const state = { current: 'idle' as ReasoningState }
-    let done = false 
-    for await (const rawChunk of upstreamResponse.body!) {
-        if(done) break;
-        buffer += decoder.decode(rawChunk)
-        const events = buffer.split('\n\n')
-        buffer = events.pop() ?? ''
-        for (const event of events) {
-            if (!event.trim()) continue
-            if (event === 'data: [DONE]') {
-                done = true;
-                break;
+    let done = false
+
+    try {
+        for await (const rawChunk of upstreamResponse.body!) {
+            if (done) break
+            buffer += decoder.decode(rawChunk)
+            const events = buffer.split('\n\n')
+            buffer = events.pop() ?? ''
+            for (const event of events) {
+                if (!event.trim()) continue
+                if (event === 'data: [DONE]') {
+                    done = true
+                    break
+                }
+                const chunk = parseSSEEvent(event)
+                if (!chunk) continue
+                if (chunk.choices[0]?.delta.reasoning_content) {
+                    reasoning += chunk.choices[0].delta.reasoning_content
+                }
+                if (!toolCallId && chunk.choices[0]?.delta?.tool_calls?.[0]?.id) {
+                    toolCallId = chunk.choices[0].delta.tool_calls[0].id
+                }
+                const output = transformChunk(chunk, state)
+                if (output) write(output + '\n\n')
             }
-            const chunk = parseSSEEvent(event)
-            if (!chunk) continue
-            
-            if(chunk.choices[0]?.delta.reasoning_content) {
-                reasoning +=chunk.choices[0].delta.reasoning_content;
-            }
-            if(!toolCallId && chunk.choices[0]?.delta?.tool_calls?.[0]?.id) {
-                toolCallId = chunk.choices[0].delta.tool_calls[0].id
-            }
-            const output = transformChunk(chunk, state)
-            if (output) write(output + '\n\n')
-          }
+        }
+    } catch (err) {
+        // DeepSeek 服务端断流，给 Cursor 一个友好提示
+        try {
+            write(`data: ${JSON.stringify({
+                id: 'error',
+                object: 'chat.completion.chunk',
+                choices: [{ 
+                    index: 0,
+                    delta: { content: '\n\n> ⚠️ 连接中断，请重试' }, 
+                    finish_reason: 'stop'
+                }]
+            })}\n\n`)
+        } catch {}
     }
+
     write('data: [DONE]\n\n')
     onReasoningComplete?.({ reasoning, toolCallId })
     end()
-  }
+}
