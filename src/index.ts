@@ -6,6 +6,7 @@ import { proxyStream } from "./transform/sse.js"
 import { setReasoning, getReasoning } from './cache/reasoning.js'
 
 const proxyApiKey = process.env.PROXY_API_KEY
+const buildVersion = process.env.RAILWAY_GIT_COMMIT_SHA || process.env.RENDER_GIT_COMMIT || 'local'
 
 const app = Fastify({
   logger: true,
@@ -39,6 +40,8 @@ app.addHook('preHandler', async (request, reply) => {
 if (!proxyApiKey) {
   app.log.warn('PROXY_API_KEY is not set. Client authentication is disabled.')
 }
+
+app.log.info({ buildVersion }, 'DeepSeek Cursor Proxy booting')
 
 function createClientAbortController(reply: FastifyReply): AbortController {
   const controller = new AbortController()
@@ -166,7 +169,11 @@ const chatHandler = async (request: FastifyRequest, reply: FastifyReply) => {
 }
 
 app.get('/health', async () => {
-  return { status: 'ok' }
+  return {
+    status: 'ok',
+    buildVersion,
+    imageContentNormalization: true
+  }
 })
 
 app.get('/v1/models', async () => {

@@ -1,5 +1,5 @@
 
-import type {ChatCompletionRequest, ChatCompletionResponse } from "../types/openai.js";
+import type {ChatCompletionRequest, ChatCompletionResponse, ContentPart, MessageContent } from "../types/openai.js";
 // 获取请求地址和API key
 const apiKey = process.env.DEEPSEEK_API_KEY;
 const apiUrl = process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com';
@@ -12,12 +12,41 @@ function withTimeout(signal?: AbortSignal): AbortSignal {
     return signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal
 }
 
+function normalizeContent(content: MessageContent | null): string | null {
+    if (content === null || typeof content === 'string') {
+        return content
+    }
+
+    return content
+        .map((part: ContentPart) => {
+            if (part.type === 'text') {
+                return part.text
+            }
+            if (part.type === 'image_url') {
+                return '[Image omitted: DeepSeek chat completions only accept text content.]'
+            }
+            return `[Unsupported content part omitted: ${part.type}]`
+        })
+        .filter(Boolean)
+        .join('\n')
+}
+
+function normalizeRequestForDeepSeek(request: ChatCompletionRequest): ChatCompletionRequest {
+    return {
+        ...request,
+        messages: request.messages.map(message => {
+            const content = normalizeContent(message.content)
+            return content === null ? message : { ...message, content }
+        })
+    }
+}
+
 export async function callDeepSeek(
     request: ChatCompletionRequest,
     signal?: AbortSignal
   ): Promise<ChatCompletionResponse> {
         const body ={
-            ...request,
+            ...normalizeRequestForDeepSeek(request),
             stream: false
         }
         const res = await fetch(apiPath, {
@@ -43,7 +72,7 @@ export async function callDeepSeekStream(
         request: ChatCompletionRequest,
         signal?: AbortSignal
     ): Promise<Response> {
-        const { stream_options, ...restRequest } = request as any
+        const { stream_options, ...restRequest } = normalizeRequestForDeepSeek(request) as any
         const body = {
             ...restRequest,
             stream: true,
