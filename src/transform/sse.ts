@@ -1,121 +1,185 @@
 import type {ChatCompletionChunk} from "../types/openai.js"
+
 type ReasoningState = 'idle' | 'thinking' | 'answering'
 
-// 解析单个 SSE event 字符串，提取 data 字段并 JSON.parse
-// 返回 null 表示"跳过这个 event"（比如 [DONE] 或空行）
-// 示例数据："data: {\"id\":\"xxx\",\"choices\":[{\"delta\":{\"reasoning_content\":\"嗯\"}}]}"
-function parseSSEEvent(event: string): ChatCompletionChunk | null {
-    if(!event || event === 'data: [DONE]') return null;
-    if(event.startsWith('data: ')) {
-       event = event.slice('data: '.length);
-    }
-    return JSON.parse(event); // JSON.parse默认返回any，需要用zod来做运行时结构校验
+interface ParsedSSEEvent {
+    done: boolean
+    chunk: ChatCompletionChunk | null
 }
 
+function parseSSEEvent(event: string): ParsedSSEEvent {
+    const dataLines = event
+        .replace(/\r\n/g, '\n')
+        .split('\n')
+        .filter(line => line.startsWith('data:'))
+        .map(line => line.slice('data:'.length).trimStart())
 
-// 把一个 chunk 根据当前状态改写，返回改写后的 SSE 字符串
-// 同时更新状态
+    if (dataLines.length === 0) {
+        return { done: false, chunk: null }
+    }
+
+    const data = dataLines.join('\n')
+    if (!data || data === '[DONE]') {
+        return { done: data === '[DONE]', chunk: null }
+    }
+
+    return { done: false, chunk: JSON.parse(data) as ChatCompletionChunk }
+}
+
+function toSSEData(payload: unknown): string {
+    return `data: ${JSON.stringify(payload)}`
+}
+
 function transformChunk(
     chunk: ChatCompletionChunk,
-    state: { current: ReasoningState }  // 用对象包裹，让函数内部能修改它
-    // null 表示这个 chunk 不需要输出任何内容
-  ): string | null  {
-    const delta = chunk.choices[0]?.delta;
-    if (!delta) return null; // early return
-    const {content,reasoning_content} = delta;
-    let newContent:string | null = null;
-    // 标记思维链开始
-    if(reasoning_content) {
-        if(state.current === 'idle') {
-            state.current  = 'thinking';
+    state: { current: ReasoningState }
+): string | null {
+    const delta = chunk.choices[0]?.delta
+    if (!delta) return null
+
+    const { content, reasoning_content } = delta
+    let newContent: string | null = null
+
+    if (reasoning_content) {
+        if (state.current === 'idle') {
+            state.current = 'thinking'
             newContent = `<think>${reasoning_content}`
         } else {
             newContent = reasoning_content
         }
-        
     }
-    // 标志思维结束
-    if(content) {
-        if(state.current === 'thinking') {
-            state.current  = 'answering';
-            newContent = `</think>${content}`; 
-        }else {
-            newContent = content;
+
+    if (content) {
+        if (state.current === 'thinking') {
+            state.current = 'answering'
+            newContent = `</think>${content}`
+        } else {
+            newContent = content
         }
     }
-    // tool_calls 直接透传，不改写
+
     if (delta.tool_calls) {
-        return 'data: ' + JSON.stringify(chunk)
+        return toSSEData(chunk)
     }
-    
-    if(newContent === null) {
-        return null;
+
+    if (newContent === null) {
+        return null
     }
 
     const newChunk = {
         ...chunk,
         choices: [{
             ...chunk.choices[0],
-            delta: { content: newContent }  // 新 delta，只留 content
+            delta: { content: newContent }
         }]
     }
-    return "data: " + JSON.stringify(newChunk);
-  }
-  
-  // 主函数：消费 DeepSeek 的流，改写后推给 Cursor
-  export async function proxyStream(
+
+    return toSSEData(newChunk)
+}
+
+function closeThinkingChunk(sourceChunk: ChatCompletionChunk): string {
+    const choice = sourceChunk.choices[0] ?? { delta: {}, finish_reason: null }
+    return toSSEData({
+        ...sourceChunk,
+        choices: [{
+            ...choice,
+            delta: { content: '</think>' },
+            finish_reason: null
+        }]
+    })
+}
+
+export async function proxyStream(
     upstreamResponse: Response,
     write: (data: string) => void,
     end: () => void,
-    onReasoningComplete?: (result: { reasoning: string; toolCallId: string }) => void
+    onReasoningComplete?: (result: { reasoning: string; toolCallId: string }) => void,
+    signal?: AbortSignal
 ): Promise<void> {
+    if (!upstreamResponse.body) {
+        throw new Error('DeepSeek stream response body is empty')
+    }
+
     const decoder = new TextDecoder()
     let buffer = ''
     let reasoning = ''
     let toolCallId = ''
+    let lastChunk: ChatCompletionChunk | null = null
     const state = { current: 'idle' as ReasoningState }
     let done = false
 
+    const writeSSE = (data: string) => write(`${data}\n\n`)
+
     try {
-        for await (const rawChunk of upstreamResponse.body!) {
-            if (done) break
-            buffer += decoder.decode(rawChunk)
-            const events = buffer.split('\n\n')
+        for await (const rawChunk of upstreamResponse.body) {
+            if (signal?.aborted || done) break
+
+            buffer += decoder.decode(rawChunk, { stream: true })
+            const events = buffer.split(/\n\n|\r\n\r\n/)
             buffer = events.pop() ?? ''
+
             for (const event of events) {
+                if (signal?.aborted) break
                 if (!event.trim()) continue
-                if (event === 'data: [DONE]') {
+
+                const parsed = parseSSEEvent(event)
+                if (parsed.done) {
                     done = true
                     break
                 }
-                const chunk = parseSSEEvent(event)
-                if (!chunk) continue
-                if (chunk.choices[0]?.delta.reasoning_content) {
-                    reasoning += chunk.choices[0].delta.reasoning_content
+                if (!parsed.chunk) continue
+
+                const chunk = parsed.chunk
+                lastChunk = chunk
+
+                const delta = chunk.choices[0]?.delta
+                if (delta?.reasoning_content) {
+                    reasoning += delta.reasoning_content
                 }
-                if (!toolCallId && chunk.choices[0]?.delta?.tool_calls?.[0]?.id) {
-                    toolCallId = chunk.choices[0].delta.tool_calls[0].id
+                const firstToolCall = delta?.tool_calls?.[0]
+                if (!toolCallId && firstToolCall?.id) {
+                    toolCallId = firstToolCall.id
                 }
+
                 const output = transformChunk(chunk, state)
-                if (output) write(output + '\n\n')
+                if (output) writeSSE(output)
+            }
+        }
+
+        buffer += decoder.decode()
+        if (!done && buffer.trim()) {
+            const parsed = parseSSEEvent(buffer)
+            if (parsed.chunk) {
+                lastChunk = parsed.chunk
+                const output = transformChunk(parsed.chunk, state)
+                if (output) writeSSE(output)
             }
         }
     } catch (err) {
-        // DeepSeek 服务端断流，给 Cursor 一个友好提示
-        try {
-            write(`data: ${JSON.stringify({
-                id: 'error',
-                object: 'chat.completion.chunk',
-                choices: [{ 
-                    index: 0,
-                    delta: { content: '\n\n> ⚠️ 连接中断，请重试' }, 
-                    finish_reason: 'stop'
-                }]
-            })}\n\n`)
-        } catch {}
+        if (!signal?.aborted) {
+            try {
+                writeSSE(toSSEData({
+                    id: 'error',
+                    object: 'chat.completion.chunk',
+                    choices: [{
+                        index: 0,
+                        delta: { content: '\n\n> 连接中断，请重试' },
+                        finish_reason: 'stop'
+                    }]
+                }))
+            } catch {}
+        }
     }
 
-    write('data: [DONE]\n\n')
-    onReasoningComplete?.({ reasoning, toolCallId })
+    if (!signal?.aborted) {
+        if (state.current === 'thinking' && lastChunk) {
+            writeSSE(closeThinkingChunk(lastChunk))
+        }
+        write('data: [DONE]\n\n')
+    }
+
+    if (!signal?.aborted) {
+        onReasoningComplete?.({ reasoning, toolCallId })
+    }
     end()
 }

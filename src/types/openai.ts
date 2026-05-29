@@ -1,17 +1,37 @@
+export interface TextContentPart {
+    type: 'text';
+    text: string;
+}
+
+export interface ImageUrlContentPart {
+    type: 'image_url';
+    image_url: {
+        url: string;
+        detail?: 'auto' | 'low' | 'high';
+    } | string;
+}
+
+export type ContentPart = TextContentPart | ImageUrlContentPart | {
+    type: string;
+    [key: string]: unknown;
+};
+
+export type MessageContent = string | ContentPart[];
+
 // 系统提示词
 export interface SystemMessage {
     role: 'system';
-    content: string;
+    content: MessageContent;
 }
 // 用户消息
 export interface UserMessage {
     role: 'user';
-    content: string;
+    content: MessageContent;
 }
 // AI 回复
 export interface AssistantMessage {
     role: 'assistant';
-    content: string | null; // 在调用工具进行回复的时候可以是null
+    content: MessageContent | null; // 在调用工具进行回复的时候可以是null
     reasoning_content?: string;
     tool_calls? :ToolCall[];
 
@@ -19,7 +39,7 @@ export interface AssistantMessage {
 // 工具调用结果
 export interface ToolMessage {
     role: 'tool';
-    content: string;
+    content: MessageContent;
     tool_call_id: string;
 }
 

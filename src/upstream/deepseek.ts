@@ -2,13 +2,19 @@
 import type {ChatCompletionRequest, ChatCompletionResponse } from "../types/openai.js";
 // 获取请求地址和API key
 const apiKey = process.env.DEEPSEEK_API_KEY;
-const apiUrl = process.env.DEEPSEEK_BASE_URL;
+const apiUrl = process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com';
+const upstreamTimeoutMs = Number(process.env.UPSTREAM_TIMEOUT_MS) || 120_000;
 if (!apiKey) throw new Error('DEEPSEEK_API_KEY is not set in environment')
-if (!apiUrl) throw new Error('DEEPSEEK_BASE_URL is not set in environment');
 const apiPath = `${apiUrl}/chat/completions`;
 
+function withTimeout(signal?: AbortSignal): AbortSignal {
+    const timeoutSignal = AbortSignal.timeout(upstreamTimeoutMs)
+    return signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal
+}
+
 export async function callDeepSeek(
-    request: ChatCompletionRequest
+    request: ChatCompletionRequest,
+    signal?: AbortSignal
   ): Promise<ChatCompletionResponse> {
         const body ={
             ...request,
@@ -20,7 +26,8 @@ export async function callDeepSeek(
                 'Authorization': `Bearer ${apiKey}`,
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify(body)
+            body: JSON.stringify(body),
+            signal: withTimeout(signal)
         });
         // fetch不处理 400 500 报错
         if(!res.ok) {
@@ -33,7 +40,8 @@ export async function callDeepSeek(
 
 // 用于流式调用
 export async function callDeepSeekStream(
-        request: ChatCompletionRequest
+        request: ChatCompletionRequest,
+        signal?: AbortSignal
     ): Promise<Response> {
         const { stream_options, ...restRequest } = request as any
         const body = {
@@ -50,7 +58,8 @@ export async function callDeepSeekStream(
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${apiKey}`
             },
-            body: JSON.stringify(body)
+            body: JSON.stringify(body),
+            signal: withTimeout(signal)
         })
 
         if(!res.ok) {
