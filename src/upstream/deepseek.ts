@@ -6,21 +6,30 @@ const apiUrl = process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com';
 const upstreamTimeoutMs = Number(process.env.UPSTREAM_TIMEOUT_MS) || 120_000;
 if (!apiKey) throw new Error('DEEPSEEK_API_KEY is not set in environment')
 const apiPath = `${apiUrl}/chat/completions`;
+const DATA_IMAGE_URL_RE = /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\r\n]+/g
 
 function withTimeout(signal?: AbortSignal): AbortSignal {
     const timeoutSignal = AbortSignal.timeout(upstreamTimeoutMs)
     return signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal
 }
 
+function stripInlineImageData(content: string): string {
+    return content.replace(DATA_IMAGE_URL_RE, '[Inline image data omitted]')
+}
+
 function normalizeContent(content: MessageContent | null): string | null {
-    if (content === null || typeof content === 'string') {
+    if (content === null) {
         return content
+    }
+
+    if (typeof content === 'string') {
+        return stripInlineImageData(content)
     }
 
     return content
         .map((part: ContentPart) => {
             if (part.type === 'text') {
-                return part.text
+                return stripInlineImageData(part.text)
             }
             if (part.type === 'image_url') {
                 return '[Image omitted: DeepSeek chat completions only accept text content.]'
@@ -41,12 +50,20 @@ function normalizeRequestForDeepSeek(request: ChatCompletionRequest): ChatComple
     }
 }
 
+function getRequestTextSize(request: ChatCompletionRequest): number {
+    return request.messages.reduce((total, message) => {
+        return total + (typeof message.content === 'string' ? message.content.length : 0)
+    }, 0)
+}
+
 export async function callDeepSeek(
     request: ChatCompletionRequest,
     signal?: AbortSignal
   ): Promise<ChatCompletionResponse> {
+        const normalizedRequest = normalizeRequestForDeepSeek(request)
+        console.log('[upstream] normalized request text chars =', getRequestTextSize(normalizedRequest))
         const body ={
-            ...normalizeRequestForDeepSeek(request),
+            ...normalizedRequest,
             stream: false
         }
         const res = await fetch(apiPath, {
@@ -72,7 +89,9 @@ export async function callDeepSeekStream(
         request: ChatCompletionRequest,
         signal?: AbortSignal
     ): Promise<Response> {
-        const { stream_options, ...restRequest } = normalizeRequestForDeepSeek(request) as any
+        const normalizedRequest = normalizeRequestForDeepSeek(request)
+        console.log('[upstream] normalized stream request text chars =', getRequestTextSize(normalizedRequest))
+        const { stream_options, ...restRequest } = normalizedRequest as any
         const body = {
             ...restRequest,
             stream: true,
